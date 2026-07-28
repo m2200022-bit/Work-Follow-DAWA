@@ -6,6 +6,9 @@
 <title>الوصل · الدليل والمراسلات والمهام</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&family=IBM+Plex+Sans+Arabic:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
@@ -218,6 +221,9 @@ td.reply-cell{min-width:180px}
 .barrow .n{text-align:left;direction:ltr;font-family:var(--watad);color:var(--maroon)}
 .two{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
 
+.synced{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);margin-top:10px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+.dot.on{background:var(--ok)} .dot.off{background:var(--late)} .dot.wait{background:var(--soon)}
 .toast{position:fixed;bottom:18px;left:18px;background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;
   font-size:13px;opacity:0;transform:translateY(8px);transition:.25s;pointer-events:none;z-index:40}
 .toast.on{opacity:1;transform:none}
@@ -259,6 +265,7 @@ td.reply-cell{min-width:180px}
     الإعدادات</button>
   <div class="divider"></div>
   <div class="whoami">المستخدم الحالي<b id="cur-user">—</b></div>
+  <div class="synced"><span class="dot wait" id="sync-dot"></span><span id="sync-txt">جارٍ الاتصال…</span></div>
 </aside>
 
 <main>
@@ -459,6 +466,7 @@ td.reply-cell{min-width:180px}
       <button class="mtab on" data-pane="p-brand">هوية البرنامج</button>
       <button class="mtab" data-pane="p-users">المستخدمون والصلاحيات</button>
       <button class="mtab" data-pane="p-lists">القوائم</button>
+      <button class="mtab" data-pane="p-sync">التزامن والنسخ</button>
     </div>
 
     <div class="mpane on" id="p-brand">
@@ -493,6 +501,20 @@ td.reply-cell{min-width:180px}
         <select id="u-current" style="max-width:260px"></select></div>
     </div>
 
+    <div class="mpane" id="p-sync">
+      <div class="synced" style="margin:0 0 12px"><span class="dot wait" id="sync-dot2"></span><span id="sync-txt2">—</span></div>
+      <div class="fgrid">
+        <div><label for="sp-id">مساحة العمل (تتشارك الأجهزة نفس الاسم)</label><input id="sp-id" placeholder="office-1"></div>
+      </div>
+      <div style="margin-top:11px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn sm" id="sp-save">حفظ مساحة العمل</button>
+        <button class="btn ghost sm" id="sp-push">رفع البيانات الحالية للسحابة</button>
+        <button class="btn ghost sm" id="sp-pull">سحب البيانات من السحابة</button>
+        <button class="btn ghost sm" id="sp-export">تصدير نسخة احتياطية</button>
+      </div>
+      <p class="empty">التزامن عبر Firebase Firestore — أي تعديل من أي جهاز يظهر مباشرة على بقية الأجهزة المرتبطة بنفس مساحة العمل.</p>
+    </div>
+
     <div class="mpane" id="p-lists">
       <p class="empty" style="padding:0 0 10px">إدارة القوائم المنسدلة المستخدمة في كل الصفحات.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -515,7 +537,8 @@ td.reply-cell{min-width:180px}
 /* ================= التخزين ================= */
 const mem={};
 async function load(k,d){try{const r=await window.storage.get(k);return r?JSON.parse(r.value):d}catch(e){return (k in mem)?mem[k]:d}}
-async function save(k,v){mem[k]=v;try{await window.storage.set(k,JSON.stringify(v))}catch(e){}}
+async function save(k,v){mem[k]=v;try{await window.storage.set(k,JSON.stringify(v))}catch(e){}
+  try{if(k!=="dir:space")await pushKey(k,v)}catch(e){}}
 const DEF_LOGO=document.getElementById("app-logo").src;
 const DB={contacts:[],mails:[],tasks:[],seq:1,
   lists:{titles:["مدير","نائب مدير","رئيس قسم","سكرتارية","موظف"],
@@ -1228,6 +1251,92 @@ function renderCounters(){
 }
 function renderAll(){renderContacts();renderMails();renderTasks();renderMemos();renderStats();renderCounters();fillAllSelects();applyPerms()}
 
+
+/* ================= التزامن مع Firebase ================= */
+const firebaseConfig={
+  apiKey:"AIzaSyDFLO8fQLHnNVVEvB1uNclMOHKi24qj6NA",
+  authDomain:"mham-almktab.firebaseapp.com",
+  projectId:"mham-almktab",
+  storageBucket:"mham-almktab.firebasestorage.app",
+  messagingSenderId:"624159891568",
+  appId:"1:624159891568:web:25dba98eecd1e60eebd4b5",
+  measurementId:"G-Q42NE5VSGD"
+};
+const SYNC={db:null,ready:false,space:"office-1",last:{},unsub:[]};
+const KEYS=["dir:contacts","dir:mails","dir:tasks","dir:memos","dir:lists","dir:users","dir:settings"];
+const docId=k=>k.replace(/[:/]/g,"_");
+function setSync(state,txt){
+  [["#sync-dot","#sync-txt"],["#sync-dot2","#sync-txt2"]].forEach(([d,t])=>{
+    const dd=$(d),tt=$(t);if(!dd)return;dd.className="dot "+state;if(tt)tt.textContent=txt});
+}
+function applyRemote(key,json){
+  if(SYNC.last[key]===json)return;
+  SYNC.last[key]=json;mem[key]=JSON.parse(json);
+  const v=mem[key];
+  if(key==="dir:contacts")DB.contacts=v;
+  else if(key==="dir:mails")DB.mails=v;
+  else if(key==="dir:memos")DB.memos=v;
+  else if(key==="dir:lists")DB.lists=v;
+  else if(key==="dir:users")DB.users=v;
+  else if(key==="dir:settings"){DB.settings=v;applyBrand()}
+  else if(key==="dir:tasks"){DB.tasks=v.list||[];DB.seq=v.seq||DB.tasks.length+1}
+  try{renderAll()}catch(e){}
+}
+async function pushKey(key,val){
+  if(!SYNC.ready)return;
+  const json=JSON.stringify(val);
+  if(SYNC.last[key]===json)return;
+  SYNC.last[key]=json;
+  try{
+    await SYNC.db.collection("spaces").doc(SYNC.space).collection("data").doc(docId(key))
+      .set({json,updatedAt:Date.now()},{merge:true});
+  }catch(e){setSync("off","تعذّر الحفظ في السحابة")}
+}
+function listen(){
+  SYNC.unsub.forEach(u=>{try{u()}catch(e){}});SYNC.unsub=[];
+  KEYS.forEach(k=>{
+    const ref=SYNC.db.collection("spaces").doc(SYNC.space).collection("data").doc(docId(k));
+    SYNC.unsub.push(ref.onSnapshot(snap=>{
+      if(!snap.exists)return;
+      const d=snap.data();if(d&&d.json)applyRemote(k,d.json);
+      setSync("on","متزامن · "+SYNC.space);
+    },err=>setSync("off","خطأ في التزامن")));
+  });
+}
+async function pushAll(){
+  await pushKey("dir:contacts",DB.contacts);await pushKey("dir:mails",DB.mails);
+  await pushKey("dir:memos",DB.memos);await pushKey("dir:lists",DB.lists);
+  await pushKey("dir:users",DB.users);await pushKey("dir:settings",DB.settings);
+  await pushKey("dir:tasks",{list:DB.tasks,seq:DB.seq});
+}
+async function initSync(){
+  if(!window.firebase||!firebase.initializeApp){setSync("off","العمل بدون تزامن (محلي)");return}
+  try{
+    if(!firebase.apps.length)firebase.initializeApp(firebaseConfig);
+    SYNC.db=firebase.firestore();
+    try{await firebase.auth().signInAnonymously()}catch(e){}
+    try{SYNC.space=(await load("dir:space","office-1"))||"office-1"}catch(e){}
+    SYNC.ready=true;setSync("wait","جارٍ المزامنة…");
+    listen();
+    setTimeout(pushAll,1500);
+  }catch(e){setSync("off","تعذّر الاتصال بالسحابة")}
+}
+$("#sp-save").onclick=async()=>{
+  const v=($("#sp-id").value||"").trim()||"office-1";
+  SYNC.space=v;await save("dir:space",v);SYNC.last={};
+  if(SYNC.ready){listen();await pushAll()}
+  toast("مساحة العمل: "+v);
+};
+$("#sp-push").onclick=async()=>{SYNC.last={};await pushAll();toast("رُفعت البيانات للسحابة")};
+$("#sp-pull").onclick=async()=>{SYNC.last={};listen();toast("جارٍ سحب البيانات…")};
+$("#sp-export").onclick=()=>{
+  const data={contacts:DB.contacts,mails:DB.mails,tasks:DB.tasks,seq:DB.seq,memos:DB.memos,
+    lists:DB.lists,users:DB.users,settings:DB.settings};
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"application/json"}));
+  a.download="alwasl-backup.json";a.click();toast("تم تنزيل النسخة الاحتياطية");
+};
+
 /* ================= الإقلاع ================= */
 async function boot(){
   DB.contacts=await load("dir:contacts",[]);
@@ -1241,6 +1350,9 @@ async function boot(){
   const t=await load("dir:tasks",{list:[],seq:1});
   DB.tasks=t.list||[];DB.seq=t.seq||DB.tasks.length+1;
   applyBrand();renderAll();
+  const sp=$("#sp-id");if(sp)sp.value=SYNC.space;
+  if(!SYNC.ready)await initSync();
+  if(sp)sp.value=SYNC.space;
 }
 boot();
 </script>
