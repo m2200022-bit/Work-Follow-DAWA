@@ -281,8 +281,7 @@ td.reply-cell{min-width:180px}
   <div class="divider"></div>
   <div class="whoami">المستخدم الحالي<b id="cur-user">—</b></div>
   <div class="synced"><span class="dot wait" id="sync-dot"></span><span id="sync-txt">جارٍ الاتصال…</span></div>
-  <div class="mini" id="auth-mail" style="margin-top:4px"></div>
-  <button class="btn ghost sm" id="logout" style="margin-top:8px;display:none;width:100%">تسجيل الخروج</button>
+  <button class="btn ghost sm" id="logout" style="margin-top:10px;width:100%">قفل البرنامج</button>
 </aside>
 
 <main>
@@ -492,6 +491,10 @@ td.reply-cell{min-width:180px}
         <div><label for="s-tag">الوصف المختصر</label><input id="s-tag"></div>
         <div class="full"><label for="s-logo">الشعار (صورة PNG أو SVG)</label><input id="s-logo" type="file" accept="image/*"></div>
       </div>
+      <div class="fgrid" style="margin-top:14px">
+        <div><label for="ad-user">اسم مستخدم المدير</label><input id="ad-user"></div>
+        <div><label for="ad-pass">كلمة مرور المدير</label><input id="ad-pass" type="password" placeholder="اتركها فارغة لعدم التغيير"></div>
+      </div>
       <div style="margin-top:12px"><button class="btn sm" id="s-brand-save">حفظ الهوية</button>
         <button class="btn ghost sm" id="s-logo-reset">إرجاع الشعار الافتراضي</button></div>
     </div>
@@ -500,7 +503,6 @@ td.reply-cell{min-width:180px}
       <div class="fgrid">
         <div><label for="u-name">اسم المستخدم</label><input id="u-name"></div>
         <div><label for="u-job">الصفة الوظيفية</label><input id="u-job"></div>
-        <div><label for="u-mail">البريد الإلكتروني للدخول</label><input id="u-mail" type="email"></div>
       </div>
       <div class="permbox" id="u-perms">
         <label><input type="checkbox" value="dir" checked> الدليل</label>
@@ -550,24 +552,19 @@ td.reply-cell{min-width:180px}
 </div></div>
 
 
-<!-- ===== شاشة تسجيل الدخول ===== -->
-<div class="login" id="ov-login">
+
+<!-- ===== دخول المدير ===== -->
+<div class="login on" id="ov-login">
   <div class="box">
     <div class="hd">
       <img id="login-logo" alt="" src="">
-      <div><h2 id="login-name">الوصل</h2><span>الدخول بحساب الموظف المعتمد</span></div>
+      <div><h2 id="login-name">الوصل</h2><span>الدخول بحساب المدير (Admin)</span></div>
     </div>
-    <div class="row"><label for="lg-mail">البريد الإلكتروني</label><input id="lg-mail" type="email" autocomplete="username"></div>
+    <div class="row"><label for="lg-user">اسم المستخدم</label><input id="lg-user" value="admin" autocomplete="username"></div>
     <div class="row"><label for="lg-pass">كلمة المرور</label><input id="lg-pass" type="password" autocomplete="current-password"></div>
-    <div class="acts">
-      <button class="btn" id="lg-in">تسجيل الدخول</button>
-      <button class="btn ghost" id="lg-up">إنشاء حساب</button>
-    </div>
-    <div class="acts" style="margin-top:10px">
-      <button class="lnk" id="lg-reset">نسيت كلمة المرور</button>
-      <button class="lnk" id="lg-local">متابعة بدون تزامن (محلي)</button>
-    </div>
+    <div class="acts"><button class="btn" id="lg-in">دخول</button></div>
     <div class="msg" id="lg-msg"></div>
+    <p class="empty" style="padding:8px 0 0">البيانات الافتراضية: admin / admin — غيّرها من الإعدادات بعد الدخول.</p>
   </div>
 </div>
 
@@ -589,7 +586,7 @@ const DB={contacts:[],mails:[],tasks:[],seq:1,
     units:["الشؤون الإدارية","الشؤون المالية","تقنية المعلومات","الموارد البشرية","الشؤون القانونية"],
     senders:["مكتب الوكيل","الأرشيف المركزي","الإدارة العامة"]},
   memos:[],
-  settings:{appName:"الوصل",appTag:"الدليل · المراسلات · المهام",logo:null,current:1},
+  settings:{appName:"الوصل",appTag:"الدليل · المراسلات · المهام",logo:null,current:1,admin:{u:"admin",p:"admin"}},
   users:[{id:1,name:"مدير النظام",job:"مسؤول",perms:{dir:1,mail:1,tasks:1,arch:1,stats:1,settings:1}}]};
 
 /* ================= أدوات ================= */
@@ -788,11 +785,15 @@ $("#refresh-contact").onclick=$("#refresh-mail").onclick=$("#refresh-task").oncl
 /* ================= الإعدادات ================= */
 $("#open-settings").onclick=()=>{
   $("#s-name").value=DB.settings.appName;$("#s-tag").value=DB.settings.appTag;
+  $("#ad-user").value=adminCreds().u;$("#ad-pass").value="";
   renderUsers();$("#ov-set").classList.add("on");
 };
 $("#s-brand-save").onclick=async()=>{
   DB.settings.appName=$("#s-name").value.trim()||"الوصل";
   DB.settings.appTag=$("#s-tag").value.trim();
+  const c=adminCreds();
+  DB.settings.admin={u:($("#ad-user").value||"").trim()||c.u,p:$("#ad-pass").value?$("#ad-pass").value:c.p};
+  $("#ad-pass").value="";
   await save("dir:settings",DB.settings);applyBrand();toast("حُفظت هوية البرنامج");
 };
 $("#s-logo").onchange=e=>{
@@ -816,11 +817,10 @@ function renderUsers(){
   DB.users.forEach(u=>{
     const row=el("div","list-item");
     const nm=el("div","nm",u.name);
-    nm.appendChild(el("span","sub",(u.email?u.email+" · ":"")+(u.job?u.job+" · ":"")+Object.keys(u.perms).map(k=>names[k]).join("، ")));
+    nm.appendChild(el("span","sub",(u.job?u.job+" · ":"")+Object.keys(u.perms).map(k=>names[k]).join("، ")));
     row.appendChild(nm);
     const e=el("button","btn ghost sm","تعديل");
-    e.onclick=()=>{U_ID=u.id;$("#u-name").value=u.name;$("#u-job").value=u.job||"";$("#u-mail").value=u.email||"";
-      setPerms(u.perms);$("#u-note").textContent="جاهز للتحديث"};
+    e.onclick=()=>{U_ID=u.id;$("#u-name").value=u.name;$("#u-job").value=u.job||"";setPerms(u.perms);$("#u-note").textContent="جاهز للتحديث"};
     const d=el("button","btn danger sm","حذف");
     d.onclick=async()=>{if(DB.users.length<2)return toast("لا يمكن حذف آخر مستخدم");
       DB.users=DB.users.filter(x=>x.id!==u.id);
@@ -835,15 +835,14 @@ function renderUsers(){
 }
 $("#u-add").onclick=async()=>{
   const n=$("#u-name").value.trim();if(!n)return toast("اكتب اسم المستخدم");
-  DB.users.push({id:Date.now(),name:n,job:$("#u-job").value.trim(),email:($("#u-mail").value||"").trim().toLowerCase(),perms:readPerms()});
-  await save("dir:users",DB.users);$("#u-name").value="";$("#u-job").value="";$("#u-mail").value="";U_ID=null;renderUsers();toast("أُضيف المستخدم");
+  DB.users.push({id:Date.now(),name:n,job:$("#u-job").value.trim(),perms:readPerms()});
+  await save("dir:users",DB.users);$("#u-name").value="";$("#u-job").value="";U_ID=null;renderUsers();toast("أُضيف المستخدم");
 };
 $("#u-apply").onclick=async()=>{
   if(!U_ID)return toast("اختر مستخدمًا بزر «تعديل»");
   const i=DB.users.findIndex(x=>x.id===U_ID);if(i<0)return;
-  DB.users[i]={...DB.users[i],name:$("#u-name").value.trim()||DB.users[i].name,job:$("#u-job").value.trim(),
-    email:($("#u-mail").value||"").trim().toLowerCase(),perms:readPerms()};
-  await save("dir:users",DB.users);U_ID=null;$("#u-name").value="";$("#u-job").value="";$("#u-mail").value="";$("#u-note").textContent="";
+  DB.users[i]={...DB.users[i],name:$("#u-name").value.trim()||DB.users[i].name,job:$("#u-job").value.trim(),perms:readPerms()};
+  await save("dir:users",DB.users);U_ID=null;$("#u-name").value="";$("#u-job").value="";$("#u-note").textContent="";
   renderUsers();applyPerms();toast("حُدّث المستخدم");
 };
 
@@ -1360,17 +1359,11 @@ async function initSync(){
   try{
     if(!firebase.apps.length)firebase.initializeApp(firebaseConfig);
     SYNC.db=firebase.firestore();
+    try{await firebase.auth().signInAnonymously()}catch(e){}
     try{SYNC.space=(await load("dir:space","office-1"))||"office-1"}catch(e){}
-    firebase.auth().onAuthStateChanged(async u=>{
-      if(u){
-        $("#ov-login").classList.remove("on");
-        SYNC.ready=true;SYNC.last={};setSync("wait","جارٍ المزامنة…");
-        listen();await bindUserByEmail(u.email);setTimeout(pushAll,1500);
-      }else{
-        SYNC.ready=false;await bindUserByEmail(null);
-        setSync("off","يلزم تسجيل الدخول");showLogin();
-      }
-    });
+    SYNC.ready=true;setSync("wait","جارٍ المزامنة…");
+    listen();
+    setTimeout(pushAll,1500);
   }catch(e){setSync("off","تعذّر الاتصال بالسحابة")}
 }
 
@@ -1391,68 +1384,25 @@ $("#sp-export").onclick=()=>{
 };
 
 
-/* ================= تسجيل الدخول والصلاحيات السحابية ================= */
-let AUTH_EMAIL=null;
-const AUTH_MSG={
-  "auth/invalid-email":"صيغة البريد غير صحيحة",
-  "auth/user-not-found":"لا يوجد حساب بهذا البريد",
-  "auth/wrong-password":"كلمة المرور غير صحيحة",
-  "auth/invalid-credential":"البريد أو كلمة المرور غير صحيحة",
-  "auth/email-already-in-use":"هذا البريد مسجّل مسبقًا — استخدم «تسجيل الدخول»",
-  "auth/weak-password":"كلمة المرور قصيرة — 6 أحرف على الأقل",
-  "auth/too-many-requests":"محاولات كثيرة — أعد المحاولة بعد قليل",
-  "auth/operation-not-allowed":"الدخول بالبريد غير مفعّل في إعدادات Firebase",
-  "auth/network-request-failed":"تعذّر الاتصال بالشبكة"
-};
-const authErr=e=>AUTH_MSG[e&&e.code]||"تعذّر إتمام العملية: "+((e&&e.message)||"");
-function lgMsg(t,ok){const m=$("#lg-msg");m.textContent=t||"";m.style.color=ok?"var(--ok)":"var(--late)"}
+
+/* ================= بوابة المدير ================= */
+function lgMsg(t){const m=$("#lg-msg");if(m)m.textContent=t||""}
+function adminCreds(){return DB.settings.admin||{u:"admin",p:"admin"}}
 function showLogin(){
   $("#login-name").textContent=DB.settings.appName||"الوصل";
   $("#login-logo").src=DB.settings.logo||DEF_LOGO;
+  $("#lg-pass").value="";lgMsg("");
   $("#ov-login").classList.add("on");
+  setTimeout(()=>$("#lg-pass").focus(),50);
 }
-async function bindUserByEmail(email){
-  AUTH_EMAIL=email;
-  $("#auth-mail").textContent=email||"";
-  $("#logout").style.display=email?"block":"none";
-  if(!email)return;
-  let u=DB.users.find(x=>(x.email||"").toLowerCase()===email.toLowerCase());
-  if(!u){
-    /* أول حساب يدخل المساحة يُمنح صلاحية كاملة، ومن بعده صلاحيات عمل بلا إعدادات */
-    const first=!DB.users.some(x=>x.email);
-    u={id:Date.now(),name:email.split("@")[0],job:first?"مسؤول":"موظف",email:email.toLowerCase(),
-       perms:first?{dir:1,mail:1,tasks:1,arch:1,stats:1,settings:1}:{dir:1,mail:1,tasks:1,arch:1,stats:1}};
-    DB.users.push(u);await save("dir:users",DB.users);
-  }
-  LOCAL_CUR=u.id;applyPerms();
-}
-$("#lg-in").onclick=async()=>{
-  const e=($("#lg-mail").value||"").trim(),p=$("#lg-pass").value;
-  if(!e||!p)return lgMsg("أدخل البريد وكلمة المرور");
-  lgMsg("جارٍ التحقق…",true);
-  try{await firebase.auth().signInWithEmailAndPassword(e,p);lgMsg("")}catch(err){lgMsg(authErr(err))}
-};
-$("#lg-up").onclick=async()=>{
-  const e=($("#lg-mail").value||"").trim(),p=$("#lg-pass").value;
-  if(!e||!p)return lgMsg("أدخل البريد وكلمة المرور");
-  lgMsg("جارٍ إنشاء الحساب…",true);
-  try{await firebase.auth().createUserWithEmailAndPassword(e,p);lgMsg("")}catch(err){lgMsg(authErr(err))}
-};
-$("#lg-reset").onclick=async()=>{
-  const e=($("#lg-mail").value||"").trim();
-  if(!e)return lgMsg("اكتب بريدك أولًا");
-  try{await firebase.auth().sendPasswordResetEmail(e);lgMsg("أُرسل رابط إعادة التعيين إلى بريدك",true)}
-  catch(err){lgMsg(authErr(err))}
-};
-$("#lg-local").onclick=()=>{
-  $("#ov-login").classList.remove("on");SYNC.ready=false;
-  setSync("off","العمل محليًا بدون تزامن");toast("وضع محلي — البيانات لن تُزامن");
+$("#lg-in").onclick=()=>{
+  const c=adminCreds();
+  const u=($("#lg-user").value||"").trim(),p=$("#lg-pass").value;
+  if(u.toLowerCase()!==String(c.u).toLowerCase()||p!==String(c.p))return lgMsg("اسم المستخدم أو كلمة المرور غير صحيحة");
+  $("#ov-login").classList.remove("on");lgMsg("");toast("أهلًا بك");
 };
 $("#lg-pass").addEventListener("keydown",e=>{if(e.key==="Enter")$("#lg-in").click()});
-$("#logout").onclick=async()=>{
-  try{await firebase.auth().signOut()}catch(e){}
-  SYNC.ready=false;LOCAL_CUR=null;showLogin();
-};
+$("#logout").onclick=()=>showLogin();
 
 /* ================= الإقلاع ================= */
 async function boot(){
@@ -1466,7 +1416,7 @@ async function boot(){
   DB.settings=await load("dir:settings",DB.settings);
   const t=await load("dir:tasks",{list:[],seq:1});
   DB.tasks=t.list||[];DB.seq=t.seq||DB.tasks.length+1;
-  applyBrand();renderAll();
+  applyBrand();renderAll();showLogin();
   const sp=$("#sp-id");if(sp)sp.value=SYNC.space;
   if(!SYNC.ready)await initSync();
   if(sp)sp.value=SYNC.space;
